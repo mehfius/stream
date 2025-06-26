@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video List</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+</head>
+<body class="font-sans bg-gray-900 h-screen flex flex-col m-0 p-0 overflow-hidden">
+
+    <!-- Tela de Entrada -->
+    <div id="entryScreen" class="w-full h-full flex flex-col justify-center items-center space-y-6">
+        <h1 class="text-4xl font-bold text-white mb-4">Escolha sua Playlist</h1>
+        <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+            <button id="playAllButton" class="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold text-lg rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                Todos os Vídeos
+            </button>
+            <button id="playShortsButton" class="px-6 py-3 bg-teal-500 hover:bg-teal-600 text-white font-semibold text-lg rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                Vídeos Curtos (&lt; 60s)
+            </button>
+        </div>
+    </div>
+
+    <!-- Conteúdo Principal do Player (inicialmente oculto) -->
+    <div id="mainContent" class="w-full flex-1 overflow-hidden hidden">
+        <div id="videoContainer" class="relative w-full h-full bg-black">
+            <video id="currentVideo" controls class="absolute top-0 left-0 w-full h-full object-contain bg-black"></video>
+            
+            <!-- Botão de Ocultar no canto superior direito -->
+            <div class="absolute top-4 right-4">
+                 <button id="hideVideoButton" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Ocultar Vídeo
+                </button>
+            </div>
+            
+            <!-- Controles na parte inferior central -->
+            <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center justify-center space-x-4">
+                <button id="previousVideoButton" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Anterior
+                </button>
+                <button id="rewindButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    -5s
+                </button>
+                <button id="forwardButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    +5s
+                </button>
+                <button id="nextVideoButton" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Próximo
+                </button>
+            </div>
+
+            <p id="videoInfo" class="absolute top-4 left-4 text-gray-300 text-sm bg-black bg-opacity-50 px-2 py-1 rounded-md"></p>
+        </div>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://sumioqodcyescypbqyir.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN1bWlvcW9kY3llc2N5cGJxeWlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4MjM5NjMsImV4cCI6MjA2NjM5OTk2M30.WJz6_mu5H4M04ClhBbmQIAtCMQ39zgV0DyILDeLrPtk';
+
+        let videos = [];
+        let currentVideoIndex = 0;
+        let cloudflareBaseUrl = '';
+
+        const entryScreen = document.getElementById('entryScreen');
+        const playAllButton = document.getElementById('playAllButton');
+        const playShortsButton = document.getElementById('playShortsButton');
+        const mainContent = document.getElementById('mainContent');
+        
+        const videoElement = document.getElementById('currentVideo');
+        const videoInfo = document.getElementById('videoInfo');
+        const nextVideoButton = document.getElementById('nextVideoButton');
+        const previousVideoButton = document.getElementById('previousVideoButton');
+        const forwardButton = document.getElementById('forwardButton');
+        const rewindButton = document.getElementById('rewindButton');
+        const hideVideoButton = document.getElementById('hideVideoButton');
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        async function getCloudflareUrl() {
+            console.log("Buscando URL da Cloudflare...");
+            try {
+                const url = `${supabaseUrl}/rest/v1/cloudflare?select=url&order=created_at.desc&limit=1`;
+                const response = await fetch(url, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) throw new Error(`Erro HTTP! status: ${response.status}`);
+                const data = await response.json();
+                if (data && data.length > 0 && data[0].url) {
+                    console.log(`URL da Cloudflare encontrada: ${data[0].url}`);
+                    return data[0].url;
+                } else {
+                    throw new Error('Nenhuma URL da Cloudflare encontrada.');
+                }
+            } catch (error) {
+                console.error('Erro ao buscar URL da Cloudflare:', error);
+                videoInfo.innerHTML = `<strong>Erro:</strong> Não foi possível carregar a URL base.`;
+                return null;
+            }
+        }
+
+        async function fetchVideosAndShuffle(autoplay = false, maxDuration = null) {
+            console.log("Buscando e embaralhando lista de vídeos...");
+            
+            let selectColumns = "id,tag,filename,hide";
+            let filters = "hide=eq.false";
+
+            if (maxDuration) {
+                selectColumns += ",seconds";
+                filters += `&seconds=lt.${maxDuration}`; 
+                console.log(`Filtrando vídeos com duração menor que ${maxDuration} segundos.`);
+            }
+
+            const fetchUrl = `${supabaseUrl}/rest/v1/files?select=${selectColumns}&${filters}`;
+
+            try {
+                const response = await fetch(fetchUrl, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+                });
+
+                if (!response.ok) {
+                    let errorMsg = `Erro HTTP! status: ${response.status}`;
+                    try {
+                        const errorBody = await response.json();
+                        errorMsg = `Erro do Supabase: ${errorBody.message}`; 
+                    } catch (e) { /* ignore */ }
+                    throw new Error(errorMsg);
+                }
+
+                videos = await response.json();
+
+                if (videos.length === 0) {
+                    videoInfo.innerHTML = "Nenhum vídeo disponível para a playlist selecionada.";
+                    nextVideoButton.disabled = true;
+                    previousVideoButton.disabled = true;
+                    return;
+                }
+
+                shuffleArray(videos);
+                currentVideoIndex = 0;
+                displayVideo(currentVideoIndex, autoplay);
+
+            } catch (error) {
+                console.error('Erro ao buscar vídeos:', error);
+                videoInfo.innerHTML = `<strong>Erro:</strong> ${error.message}`;
+            }
+        }
+
+        function displayVideo(index, shouldPlay = true) {
+            if (!cloudflareBaseUrl) {
+                videoInfo.innerHTML = `<strong>Erro:</strong> URL base dos vídeos não configurada.`;
+                return;
+            }
+            if (index >= 0 && index < videos.length) {
+                const file = videos[index];
+                const videoUrl = `${cloudflareBaseUrl}/${file.tag}/${file.filename}`;
+                
+                videoElement.src = videoUrl;
+                videoElement.load(); 
+                
+                if (shouldPlay) {
+                    videoElement.play().catch(error => console.log('Autoplay bloqueado:', error.message));
+                }
+                currentVideoIndex = index;
+                videoInfo.innerHTML = `
+                    <strong>Posição:</strong> ${currentVideoIndex + 1} / ${videos.length}<br>
+                    <strong>Tag:</strong> ${file.tag || 'N/A'}<br>
+                    <strong>Arquivo:</strong> ${file.filename || 'N/A'}
+                `;
+            } else if (videos.length === 0) {
+                 videoInfo.innerHTML = "Todos os vídeos da playlist foram vistos ou ocultados.";
+                 videoElement.src = "";
+            }
+        }
+
+        function seekVideo(seconds) {
+            if (videoElement) videoElement.currentTime += seconds;
+        }
+
+        function playNextVideo() {
+            if (videos.length === 0) return;
+            currentVideoIndex++;
+            if (currentVideoIndex >= videos.length) {
+                console.log("Fim da playlist. Voltando para o início...");
+                currentVideoIndex = 0;
+            }
+            displayVideo(currentVideoIndex, true);
+        }
+
+        function playPreviousVideo() {
+            if (videos.length === 0) return;
+            currentVideoIndex--;
+            if (currentVideoIndex < 0) {
+                // Volta para o último vídeo
+                currentVideoIndex = videos.length - 1;
+            }
+            displayVideo(currentVideoIndex, true);
+        }
+
+        async function hideCurrentVideo() {
+            if (videos.length === 0) return;
+
+            const videoToHide = videos[currentVideoIndex];
+            console.log(`Ocultando vídeo ID: ${videoToHide.id}`);
+
+            try {
+                const response = await fetch(`${supabaseUrl}/rest/v1/files?id=eq.${videoToHide.id}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=minimal'
+                    },
+                    body: JSON.stringify({ hide: true })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Falha ao ocultar o vídeo. Status: ${response.status}`);
+                }
+
+                console.log("Vídeo ocultado com sucesso no banco de dados.");
+
+                videos.splice(currentVideoIndex, 1);
+                
+                if (currentVideoIndex >= videos.length) {
+                    currentVideoIndex = 0;
+                }
+
+                displayVideo(currentVideoIndex, true);
+
+            } catch(error) {
+                console.error(error);
+            }
+        }
+        
+        async function initializeApp(maxDuration = null) {
+            cloudflareBaseUrl = await getCloudflareUrl();
+            if (cloudflareBaseUrl) {
+                await fetchVideosAndShuffle(false, maxDuration);
+                nextVideoButton.focus();
+            } else {
+                nextVideoButton.disabled = true;
+                previousVideoButton.disabled = true;
+            }
+        }
+
+        function startApp(maxDuration = null) {
+            entryScreen.classList.add('hidden');
+            mainContent.classList.remove('hidden');
+            initializeApp(maxDuration);
+        }
+
+        playAllButton.addEventListener('click', () => startApp());
+        playShortsButton.addEventListener('click', () => startApp(60));
+
+        nextVideoButton.addEventListener('click', playNextVideo);
+        previousVideoButton.addEventListener('click', playPreviousVideo);
+        hideVideoButton.addEventListener('click', hideCurrentVideo);
+        videoElement.addEventListener('ended', playNextVideo);
+        forwardButton.addEventListener('click', () => seekVideo(5));
+        rewindButton.addEventListener('click', () => seekVideo(-5));
+
+    </script>
+</body>
+</html>
