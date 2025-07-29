@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Vídeos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1f2937;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+    </style>
+</head>
+<body class="font-sans bg-gray-900 h-screen flex flex-col m-0 p-0 overflow-hidden">
+
+    <div id="videoListScreen" class="w-full h-full flex flex-col bg-gray-900 text-white">
+        <div class="flex justify-between items-center p-4 bg-gray-800 shadow-md">
+            <h2 class="text-2xl font-bold">Todos os Vídeos</h2>
+            <div class="flex space-x-4">
+                <button id="reelsButton" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Reels
+                </button>
+                <button id="allVideosButton" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Todos
+                </button>
+            </div>
+        </div>
+        <div id="videoGrid" class="flex-1 p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 overflow-y-auto custom-scrollbar">
+        </div>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://sumioqodcyescypbqyir.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN1bWlvcW9kY3llc2N5cGJxeWlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4MjM5NjMsImV4cCI6MjA2NjM5OTk2M30.WJz6_mu5H4M04ClhBbmQIAtCMQ39zgV0DyILDeLrPtk';
+
+        let cloudflareBaseUrl = '';
+
+        const videoGrid = document.getElementById('videoGrid');
+        const reelsButton = document.getElementById('reelsButton');
+        const allVideosButton = document.getElementById('allVideosButton');
+        const showHiddenButton = document.createElement('button');
+        showHiddenButton.id = 'showHiddenButton';
+        showHiddenButton.className = 'px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none';
+        showHiddenButton.textContent = 'Ocultos';
+        allVideosButton.parentElement.appendChild(showHiddenButton);
+
+
+        let observer = null;
+        let currentFilterReels = false;
+        let currentShowHidden = false;
+
+        async function getCloudflareUrl() {
+            try {
+                const url = `${supabaseUrl}/rest/v1/cloudflare?select=url&order=created_at.desc&limit=1`;
+                const response = await fetch(url, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) throw new Error(`Erro HTTP! status: ${response.status}`);
+                const data = await response.json();
+                if (data && data.length > 0 && data[0].url) {
+                    return data[0].url;
+                } else {
+                    throw new Error('Nenhuma URL da Cloudflare encontrada.');
+                }
+            } catch (error) {
+                videoGrid.innerHTML = `<p class="text-red-400 text-center col-span-full">Erro: Não foi possível carregar a URL base.</p>`;
+                return null;
+            }
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        function formatDaysAgo(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays === 0) return 'hoje';
+            if (diffDays === 1) return 'há 1 dia';
+            return `há ${diffDays} dias`;
+        }
+
+        function formatSeconds(totalSeconds) {
+            if (totalSeconds === null || isNaN(totalSeconds)) return 'N/A';
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = Math.floor(totalSeconds % 60);
+
+            let result = '';
+            if (hours > 0) {
+                result += `${hours.toString().padStart(2, '0')}:`;
+            }
+            result += `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            return result;
+        }
+
+        async function toggleHide(fileId, currentHideStatus) {
+            const newHideStatus = !currentHideStatus;
+            try {
+                const response = await fetch(`${supabaseUrl}/rest/v1/files?id=eq.${fileId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=minimal'
+                    },
+                    body: JSON.stringify({ hide: newHideStatus })
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.json();
+                    throw new Error(errorBody.message || `Erro HTTP! status: ${response.status}`);
+                }
+                
+                populateVideoGrid(currentFilterReels, currentShowHidden);
+
+            } catch (error) {
+                console.error('Error updating hide status:', error);
+                alert(`Failed to update video status: ${error.message}`);
+            }
+        }
+
+        function handleIntersection(entries, observer) {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const video = entry.target;
+                    const dataVideoSrc = video.getAttribute('data-videosrc');
+                    if (dataVideoSrc) {
+                        video.src = dataVideoSrc;
+                        video.load();
+                        video.removeAttribute('data-videosrc');
+                    }
+                    observer.unobserve(video);
+                }
+            });
+        }
+
+        async function populateVideoGrid(filterReels = false, showHidden = false) {
+            currentFilterReels = filterReels;
+            currentShowHidden = showHidden;
+            videoGrid.innerHTML = '<p class="text-center col-span-full text-gray-400">Carregando vídeos...</p>';
+            
+            if (!cloudflareBaseUrl) {
+                cloudflareBaseUrl = await getCloudflareUrl();
+                if (!cloudflareBaseUrl) {
+                    return;
+                }
+            }
+
+            let selectColumns = "id,tag,filename,size,seconds,reels,hide,created_at";
+            let fetchUrl = `${supabaseUrl}/rest/v1/files?select=${selectColumns}&order=created_at.desc`;
+
+            if (showHidden) {
+                fetchUrl += `&hide=eq.true`;
+            }
+
+            if (filterReels) {
+                fetchUrl += `&reels=eq.true`;
+            }
+
+            try {
+                const response = await fetch(fetchUrl, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.json();
+                    throw new Error(`Erro ao carregar lista de vídeos: ${errorBody.message || response.statusText}`);
+                }
+
+                const allVideos = await response.json();
+                if (allVideos.length === 0) {
+                    videoGrid.innerHTML = '<p class="text-center col-span-full text-gray-400">Nenhum vídeo disponível.</p>';
+                    return;
+                }
+
+                videoGrid.innerHTML = '';
+
+                if (observer) {
+                    observer.disconnect();
+                }
+                observer = new IntersectionObserver(handleIntersection, {
+                    rootMargin: '0px 0px 100px 0px',
+                    threshold: 0.01
+                });
+
+                allVideos.forEach((file) => {
+                    const videoUrl = `${cloudflareBaseUrl}/${file.tag}/${file.filename}`;
+                    const videoHeightClass = file.reels ? 'h-[600px]' : 'h-[200px]';
+
+                    const videoCard = document.createElement('div');
+                    videoCard.className = 'flex flex-col items-center space-y-2 bg-gray-800 p-2 rounded-lg';
+
+                    const videoElement = document.createElement('video');
+                    videoElement.setAttribute('data-videosrc', videoUrl);
+                    videoElement.controls = true;
+                    videoElement.preload = 'none';
+                    videoElement.muted = true;
+                    videoElement.loop = true;
+                    videoElement.className = `w-[300px] ${videoHeightClass} object-cover rounded-md border border-gray-700`;
+                    videoElement.textContent = 'Seu navegador não suporta a tag de vídeo.';
+                    
+                    const menuContainer = document.createElement('div');
+                    menuContainer.className = 'flex items-center justify-between w-[300px] px-1';
+
+                    const hideButton = document.createElement('button');
+                    hideButton.textContent = file.hide ? 'Unhide' : 'Hide';
+                    hideButton.className = `px-3 py-1 ${file.hide ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none`;
+                    hideButton.onclick = () => toggleHide(file.id, file.hide);
+
+                    const durationSpan = document.createElement('span');
+                    durationSpan.className = 'text-sm text-gray-400';
+                    durationSpan.textContent = formatSeconds(file.seconds);
+
+                    const dateSpan = document.createElement('span');
+                    dateSpan.className = 'text-sm text-gray-400';
+                    dateSpan.textContent = formatDaysAgo(file.created_at);
+
+                    const sizeSpan = document.createElement('span');
+                    sizeSpan.className = 'text-sm text-gray-400';
+                    sizeSpan.textContent = formatBytes(file.size);
+
+                    menuContainer.appendChild(hideButton);
+                    menuContainer.appendChild(durationSpan);
+                    menuContainer.appendChild(dateSpan);
+                    menuContainer.appendChild(sizeSpan);
+
+                    videoCard.appendChild(videoElement);
+                    videoCard.appendChild(menuContainer);
+                    
+                    videoGrid.appendChild(videoCard);
+
+                    observer.observe(videoElement);
+                });
+
+            } catch (error) {
+                console.error('Erro ao popular a grade de vídeos:', error);
+                videoGrid.innerHTML = `<p class="text-red-400 text-center col-span-full">Erro ao carregar vídeos: ${error.message}</p>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => populateVideoGrid(false, false));
+
+        reelsButton.addEventListener('click', () => populateVideoGrid(true, false));
+        allVideosButton.addEventListener('click', () => populateVideoGrid(false, false));
+        showHiddenButton.addEventListener('click', () => populateVideoGrid(false, true));
+
+    </script>
+</body>
+</html>
