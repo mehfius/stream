@@ -10,6 +10,7 @@
             darkMode: 'class',
         }
     </script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <style>
         .custom-scrollbar::-webkit-scrollbar {
             width: 8px;
@@ -60,10 +61,23 @@
         showHiddenButton.textContent = 'Ocultos';
         allVideosButton.parentElement.appendChild(showHiddenButton);
 
+        const sortBySizeButton = document.createElement('button');
+        sortBySizeButton.id = 'sortBySizeButton';
+        sortBySizeButton.className = 'px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none';
+        sortBySizeButton.textContent = 'Ordenar por Tamanho';
+        allVideosButton.parentElement.appendChild(sortBySizeButton);
+
+        const sortByDateButton = document.createElement('button');
+        sortByDateButton.id = 'sortByDateButton';
+        sortByDateButton.className = 'px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none';
+        sortByDateButton.textContent = 'Ordenar por Data';
+        allVideosButton.parentElement.appendChild(sortByDateButton);
+
 
         let observer = null;
         let currentFilterReels = false;
         let currentShowHidden = false;
+        let currentSortBy = 'created_at.desc';
 
         async function getCloudflareUrl() {
             try {
@@ -160,9 +174,10 @@
             });
         }
 
-        async function populateVideoGrid(filterReels = false, showHidden = false) {
+        async function populateVideoGrid(filterReels = false, showHidden = false, sortBy = 'created_at.desc') {
             currentFilterReels = filterReels;
             currentShowHidden = showHidden;
+            currentSortBy = sortBy;
             videoGrid.innerHTML = '<p class="text-center col-span-full text-gray-400">Carregando vídeos...</p>';
             
             if (!cloudflareBaseUrl) {
@@ -172,8 +187,8 @@
                 }
             }
 
-            let selectColumns = "id,tag,filename,size,seconds,reels,hide,created_at";
-            let fetchUrl = `${supabaseUrl}/rest/v1/files?select=${selectColumns}&order=created_at.desc`;
+            let selectColumns = "id,tag,filename,size,seconds,reels,hide,created_at,width,height";
+            let fetchUrl = `${supabaseUrl}/rest/v1/files?select=${selectColumns}&order=${currentSortBy}`;
 
             if (showHidden) {
                 fetchUrl += `&hide=eq.true`;
@@ -228,10 +243,14 @@
                     const menuContainer = document.createElement('div');
                     menuContainer.className = 'flex items-center justify-between w-[300px] px-1';
 
-                    const hideButton = document.createElement('button');
-                    hideButton.textContent = file.hide ? 'Unhide' : 'Hide';
-                    hideButton.className = `px-3 py-1 ${file.hide ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none`;
+                    const hideButton = document.createElement('i');
+                    hideButton.className = 'material-icons cursor-pointer';
+                    hideButton.textContent = file.hide ? 'visibility_off' : 'visibility';
                     hideButton.onclick = () => toggleHide(file.id, file.hide);
+
+                    const resolutionSpan = document.createElement('span');
+                    resolutionSpan.className = 'text-sm text-gray-400';
+                    resolutionSpan.textContent = `${file.width}x${file.height}`;
 
                     const durationSpan = document.createElement('span');
                     durationSpan.className = 'text-sm text-gray-400';
@@ -246,6 +265,7 @@
                     sizeSpan.textContent = formatBytes(file.size);
 
                     menuContainer.appendChild(hideButton);
+                    menuContainer.appendChild(resolutionSpan);
                     menuContainer.appendChild(durationSpan);
                     menuContainer.appendChild(dateSpan);
                     menuContainer.appendChild(sizeSpan);
@@ -266,9 +286,11 @@
 
         document.addEventListener('DOMContentLoaded', () => populateVideoGrid(false, false));
 
-        reelsButton.addEventListener('click', () => populateVideoGrid(true, false));
-        allVideosButton.addEventListener('click', () => populateVideoGrid(false, false));
-        showHiddenButton.addEventListener('click', () => populateVideoGrid(false, true));
+        reelsButton.addEventListener('click', () => populateVideoGrid(true, false, currentSortBy));
+        allVideosButton.addEventListener('click', () => populateVideoGrid(false, false, currentSortBy));
+        showHiddenButton.addEventListener('click', () => populateVideoGrid(false, true, currentSortBy));
+        sortBySizeButton.addEventListener('click', () => populateVideoGrid(currentFilterReels, currentShowHidden, 'size.desc'));
+        sortByDateButton.addEventListener('click', () => populateVideoGrid(currentFilterReels, currentShowHidden, 'created_at.desc'));
 
     </script>
 </body>
