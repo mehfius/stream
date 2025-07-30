@@ -132,7 +132,8 @@
             return result;
         }
 
-        async function toggleHide(fileId, currentHideStatus) {
+        async function toggleHide(fileId, buttonElement) { // Changed to receive the button element
+            const currentHideStatus = buttonElement.textContent === 'visibility_off'; // Determine current status from icon
             const newHideStatus = !currentHideStatus;
             try {
                 const response = await fetch(`${supabaseUrl}/rest/v1/files?id=eq.${fileId}`, {
@@ -151,25 +152,38 @@
                     throw new Error(errorBody.message || `Erro HTTP! status: ${response.status}`);
                 }
                 
-                populateVideoGrid(currentFilterReels, currentShowHidden);
+                // Update the icon directly
+                buttonElement.textContent = newHideStatus ? 'visibility_off' : 'visibility';
+
+                // No longer calling populateVideoGrid here to avoid full refresh
+                // populateVideoGrid(currentFilterReels, currentShowHidden);
 
             } catch (error) {
                 console.error('Error updating hide status:', error);
-                alert(`Failed to update video status: ${error.message}`);
+                // Using a custom message box instead of alert()
+                const messageBox = document.createElement('div');
+                messageBox.className = 'fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50';
+                messageBox.innerHTML = `
+                    <div class="bg-gray-800 p-6 rounded-lg shadow-lg text-white">
+                        <h3 class="text-xl font-bold mb-4">Erro</h3>
+                        <p>${error.message}</p>
+                        <button class="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg" onclick="this.parentElement.parentElement.remove()">Fechar</button>
+                    </div>
+                `;
+                document.body.appendChild(messageBox);
             }
         }
 
         function handleIntersection(entries, observer) {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
-                    const video = entry.target;
-                    const dataVideoSrc = video.getAttribute('data-videosrc');
-                    if (dataVideoSrc) {
-                        video.src = dataVideoSrc;
-                        video.load();
-                        video.removeAttribute('data-videosrc');
+                    const thumbnail = entry.target;
+                    const dataThumbnailSrc = thumbnail.getAttribute('data-thumbnailsrc');
+                    if (dataThumbnailSrc) {
+                        thumbnail.src = dataThumbnailSrc;
+                        thumbnail.removeAttribute('data-thumbnailsrc');
                     }
-                    observer.unobserve(video);
+                    observer.unobserve(thumbnail);
                 }
             });
         }
@@ -192,6 +206,8 @@
 
             if (showHidden) {
                 fetchUrl += `&hide=eq.true`;
+            } else {
+                fetchUrl += `&hide=eq.false`; // Only show non-hidden videos by default
             }
 
             if (filterReels) {
@@ -225,28 +241,59 @@
                 });
 
                 allVideos.forEach((file) => {
-                    const videoUrl = `${cloudflareBaseUrl}/${file.tag}/${file.filename}`;
+                    // Conditional videoUrl based on file.tag
+                    const videoUrl = file.tag === 'no_tag' 
+                        ? `${cloudflareBaseUrl}/videos/no_tag/${file.filename}`
+                        : `${cloudflareBaseUrl}/${file.tag}/${file.filename}`;
+                        
+                    const thumbnailUrl = `${cloudflareBaseUrl}/thumbnails/no_tag/${file.filename.replace(/\.[^/.]+$/, "")}.jpg`; // Assuming .mp4 -> .jpg
+
                     const videoHeightClass = file.reels ? 'h-[600px]' : 'h-[200px]';
 
                     const videoCard = document.createElement('div');
                     videoCard.className = 'flex flex-col items-center space-y-2 bg-gray-800 p-2 rounded-lg';
 
+                    // Thumbnail Element
+                    const thumbnailElement = document.createElement('img');
+                    thumbnailElement.setAttribute('data-thumbnailsrc', thumbnailUrl); // Use data-src for lazy loading
+                    thumbnailElement.alt = `Thumbnail for ${file.filename}`;
+                    thumbnailElement.className = `w-[300px] ${videoHeightClass} object-cover rounded-md border border-gray-700 cursor-pointer`;
+                    thumbnailElement.style.display = 'block'; // Initially visible
+
+                    // Video Element
                     const videoElement = document.createElement('video');
-                    videoElement.setAttribute('data-videosrc', videoUrl);
+                    videoElement.setAttribute('data-videosrc', videoUrl); // Use data-src for lazy loading
                     videoElement.controls = true;
                     videoElement.preload = 'none';
                     videoElement.muted = true;
                     videoElement.loop = true;
-                    videoElement.className = `w-[300px] ${videoHeightClass} object-cover rounded-md border border-gray-700`;
+                    videoElement.className = `w-[300px] ${videoHeightClass} object-cover rounded-md border border-gray-700 hidden`; // Initially hidden
                     videoElement.textContent = 'Seu navegador não suporta a tag de vídeo.';
-                    
+
+                    // Event listener for thumbnail click
+                    thumbnailElement.addEventListener('click', () => {
+                        thumbnailElement.style.display = 'none';
+                        videoElement.style.display = 'block';
+                        videoElement.src = videoElement.getAttribute('data-videosrc'); // Set src when playing
+                        videoElement.load();
+                        videoElement.play();
+                    });
+
+                    // Event listeners for video end/pause
+                    videoElement.addEventListener('ended', () => {
+                        videoElement.style.display = 'none';
+                        thumbnailElement.style.display = 'block';
+                        videoElement.pause();
+                        videoElement.currentTime = 0; // Reset video to start
+                    });
+
                     const menuContainer = document.createElement('div');
                     menuContainer.className = 'flex items-center justify-between w-[300px] px-1';
 
                     const hideButton = document.createElement('i');
                     hideButton.className = 'material-icons cursor-pointer';
                     hideButton.textContent = file.hide ? 'visibility_off' : 'visibility';
-                    hideButton.onclick = () => toggleHide(file.id, file.hide);
+                    hideButton.onclick = () => toggleHide(file.id, hideButton); // Pass the button element
 
                     const resolutionSpan = document.createElement('span');
                     resolutionSpan.className = 'text-sm text-gray-400';
@@ -270,12 +317,13 @@
                     menuContainer.appendChild(dateSpan);
                     menuContainer.appendChild(sizeSpan);
 
-                    videoCard.appendChild(videoElement);
+                    videoCard.appendChild(thumbnailElement); // Add thumbnail first
+                    videoCard.appendChild(videoElement); // Then video
                     videoCard.appendChild(menuContainer);
                     
                     videoGrid.appendChild(videoCard);
 
-                    observer.observe(videoElement);
+                    observer.observe(thumbnailElement); // Observe thumbnail for lazy loading
                 });
 
             } catch (error) {

@@ -11,7 +11,7 @@
         }
     </script>
 </head>
-<body class="font-sans bg-gray-900 h-screen flex flex-col m-0 p-0 overflow-hidden">
+<body class="font-sans bg-black h-screen flex flex-col m-0 p-0 overflow-hidden">
 
     <!-- Tela de Entrada -->
     <div id="entryScreen" class="w-full h-full flex flex-col justify-center items-center space-y-6">
@@ -26,35 +26,26 @@
         </div>
     </div>
 
-    <!-- Conteúdo Principal do Player (inicialmente oculto) -->
-    <div id="mainContent" class="w-full flex-1 overflow-hidden hidden">
-        <div id="videoContainer" class="relative w-full h-full bg-black">
+    <!-- Conteúdo Principal do Player -->
+    <div id="mainContent" class="w-full flex-1 flex flex-col items-center justify-center hidden">
+        <div id="videoContainer" class="relative w-full flex-1 bg-black">
             <video id="currentVideo" controls class="absolute top-0 left-0 w-full h-full object-contain bg-black"></video>
-            
-            <!-- Botão de Ocultar no canto superior direito -->
-            <div class="absolute top-4 right-4">
-                 <button id="hideVideoButton" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
-                    Ocultar Vídeo
-                </button>
-            </div>
-            
-            <!-- Controles na parte inferior central -->
-            <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center justify-center space-x-4">
-                <button id="previousVideoButton" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
-                    Anterior
-                </button>
-                <button id="rewindButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
-                    -5s
-                </button>
-                <button id="forwardButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
-                    +5s
-                </button>
-                <button id="nextVideoButton" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
-                    Próximo
-                </button>
-            </div>
-
-            <p id="videoInfo" class="absolute top-4 left-4 text-gray-300 text-sm bg-black bg-opacity-50 px-2 py-1 rounded-md"></p>
+        </div>
+        
+        <!-- Controles movidos para fora do vídeo e centralizados abaixo -->
+        <div class="flex items-center justify-center space-x-4 py-4 bg-transparent w-full">
+            <button id="previousVideoButton" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                Anterior
+            </button>
+            <button id="rewindButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                -5s
+            </button>
+            <button id="forwardButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                +5s
+            </button>
+            <button id="nextVideoButton" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                Próximo
+            </button>
         </div>
     </div>
 
@@ -72,12 +63,12 @@
         const mainContent = document.getElementById('mainContent');
         
         const videoElement = document.getElementById('currentVideo');
-        const videoInfo = document.getElementById('videoInfo');
+        // Removed videoInfo element, so no need to reference it here
         const nextVideoButton = document.getElementById('nextVideoButton');
         const previousVideoButton = document.getElementById('previousVideoButton');
         const forwardButton = document.getElementById('forwardButton');
         const rewindButton = document.getElementById('rewindButton');
-        const hideVideoButton = document.getElementById('hideVideoButton');
+        // Removed hideVideoButton element, so no need to reference it here
 
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -103,7 +94,7 @@
                 }
             } catch (error) {
                 console.error('Erro ao buscar URL da Cloudflare:', error);
-                videoInfo.innerHTML = `<strong>Erro:</strong> Não foi possível carregar a URL base.`;
+                // Removed videoInfo.innerHTML update
                 return null;
             }
         }
@@ -112,7 +103,7 @@
             console.log("Buscando e embaralhando lista de vídeos...");
             
             let selectColumns = "id,tag,filename,hide";
-            let filters = "hide=eq.false";
+            let filters = "hide=eq.false"; 
 
             if (maxDuration) {
                 selectColumns += ",seconds";
@@ -139,7 +130,7 @@
                 videos = await response.json();
 
                 if (videos.length === 0) {
-                    videoInfo.innerHTML = "Nenhum vídeo disponível para a playlist selecionada.";
+                    // Removed videoInfo.innerHTML update
                     nextVideoButton.disabled = true;
                     previousVideoButton.disabled = true;
                     return;
@@ -151,18 +142,18 @@
 
             } catch (error) {
                 console.error('Erro ao buscar vídeos:', error);
-                videoInfo.innerHTML = `<strong>Erro:</strong> ${error.message}`;
+                // Removed videoInfo.innerHTML update
             }
         }
 
         function displayVideo(index, shouldPlay = true) {
             if (!cloudflareBaseUrl) {
-                videoInfo.innerHTML = `<strong>Erro:</strong> URL base dos vídeos não configurada.`;
+                // Removed videoInfo.innerHTML update
                 return;
             }
             if (index >= 0 && index < videos.length) {
                 const file = videos[index];
-                const videoUrl = `${cloudflareBaseUrl}/${file.tag}/${file.filename}`;
+                const videoUrl = `${cloudflareBaseUrl}/videos/no_tag/${file.filename}`;
                 
                 videoElement.src = videoUrl;
                 videoElement.load(); 
@@ -171,14 +162,10 @@
                     videoElement.play().catch(error => console.log('Autoplay bloqueado:', error.message));
                 }
                 currentVideoIndex = index;
-                videoInfo.innerHTML = `
-                    <strong>Posição:</strong> ${currentVideoIndex + 1} / ${videos.length}<br>
-                    <strong>Tag:</strong> ${file.tag || 'N/A'}<br>
-                    <strong>Arquivo:</strong> ${file.filename || 'N/A'}
-                `;
+                // Removed videoInfo.innerHTML update
             } else if (videos.length === 0) {
-                 videoInfo.innerHTML = "Todos os vídeos da playlist foram vistos ou ocultados.";
-                 videoElement.src = "";
+                // Removed videoInfo.innerHTML update
+                videoElement.src = "";
             }
         }
 
@@ -206,42 +193,7 @@
             displayVideo(currentVideoIndex, true);
         }
 
-        async function hideCurrentVideo() {
-            if (videos.length === 0) return;
-
-            const videoToHide = videos[currentVideoIndex];
-            console.log(`Ocultando vídeo ID: ${videoToHide.id}`);
-
-            try {
-                const response = await fetch(`${supabaseUrl}/rest/v1/files?id=eq.${videoToHide.id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'apikey': supabaseKey,
-                        'Authorization': `Bearer ${supabaseKey}`,
-                        'Content-Type': 'application/json',
-                        'Prefer': 'return=minimal'
-                    },
-                    body: JSON.stringify({ hide: true })
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Falha ao ocultar o vídeo. Status: ${response.status}`);
-                }
-
-                console.log("Vídeo ocultado com sucesso no banco de dados.");
-
-                videos.splice(currentVideoIndex, 1);
-                
-                if (currentVideoIndex >= videos.length) {
-                    currentVideoIndex = 0;
-                }
-
-                displayVideo(currentVideoIndex, true);
-
-            } catch(error) {
-                console.error(error);
-            }
-        }
+        // Removed hideCurrentVideo function completely
         
         async function initializeApp(maxDuration = null) {
             cloudflareBaseUrl = await getCloudflareUrl();
@@ -265,7 +217,7 @@
 
         nextVideoButton.addEventListener('click', playNextVideo);
         previousVideoButton.addEventListener('click', playPreviousVideo);
-        hideVideoButton.addEventListener('click', hideCurrentVideo);
+        // Removed hideVideoButton event listener
         videoElement.addEventListener('ended', playNextVideo);
         forwardButton.addEventListener('click', () => seekVideo(5));
         rewindButton.addEventListener('click', () => seekVideo(-5));
