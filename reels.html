@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Shorts Player</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+</head>
+<body class="font-sans bg-black h-screen flex flex-col m-0 p-0 overflow-hidden">
+
+    <!-- Conteúdo Principal do Player -->
+    <div id="mainContent" class="w-full flex-1 flex flex-col items-center justify-center">
+        <div id="videoContainer" class="relative w-full flex-1 bg-black">
+            <!-- Controles nativos removidos para criar uma barra de progresso personalizada -->
+            <video id="currentVideo" class="absolute top-0 left-0 w-full h-full object-contain bg-black"></video>
+            <!-- Elemento de vídeo oculto para pré-carregamento -->
+            <video id="preloadVideo" class="hidden"></video>
+            <p id="loadingMessage" class="absolute inset-0 flex items-center justify-center text-white text-lg font-semibold">Carregando vídeos...</p>
+        </div>
+        
+        <!-- Controles e barra de progresso personalizados, sempre visíveis -->
+        <div class="w-full flex flex-col items-center justify-center space-y-4 py-4 bg-transparent px-4">
+            <!-- Barra de Progresso e Tempo -->
+            <div class="w-full flex items-center space-x-2 text-white">
+                <span id="currentTimeSpan" class="text-sm">00:00</span>
+                <input type="range" id="progressBar" value="0" min="0" step="0.01" class="w-full h-2 rounded-lg appearance-none bg-gray-700 cursor-pointer">
+                <span id="durationSpan" class="text-sm">00:00</span>
+            </div>
+            
+            <!-- Botões de Controle -->
+            <div class="flex items-center justify-center space-x-4 w-full">
+                <button id="previousVideoButton" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Anterior
+                </button>
+                <button id="rewindButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    -5s
+                </button>
+                <button id="playPauseButton" class="w-20 h-10 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Play
+                </button>
+                <button id="forwardButton" class="w-16 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    +5s
+                </button>
+                <button id="nextVideoButton" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition duration-200 ease-in-out focus:outline-none">
+                    Próximo
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const supabaseUrl = 'https://sumioqodcyescypbqyir.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN1bWlvcW9kY3llc2N5cGJxeWlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4MjM5NjMsImV4cCI6MjA2NjM5OTk2M30.WJz6_mu5H4M04ClhBbmQIAtCMQ39zgV0DyILDeLrPtk';
+
+        let videos = [];
+        let currentVideoIndex = 0;
+        let cloudflareBaseUrl = '';
+
+        const videoElement = document.getElementById('currentVideo');
+        const nextVideoButton = document.getElementById('nextVideoButton');
+        const previousVideoButton = document.getElementById('previousVideoButton');
+        const forwardButton = document.getElementById('forwardButton');
+        const rewindButton = document.getElementById('rewindButton');
+        const playPauseButton = document.getElementById('playPauseButton');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const preloadVideoElement = document.getElementById('preloadVideo');
+
+        // Novos elementos para a barra de progresso personalizada
+        const progressBar = document.getElementById('progressBar');
+        const currentTimeSpan = document.getElementById('currentTimeSpan');
+        const durationSpan = document.getElementById('durationSpan');
+        
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        async function getCloudflareUrl() {
+            try {
+                const url = `${supabaseUrl}/rest/v1/cloudflare?select=url&order=created_at.desc&limit=1`;
+                const response = await fetch(url, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) throw new Error(`Erro HTTP! status: ${response.status}`);
+                const data = await response.json();
+                if (data && data.length > 0 && data[0].url) {
+                    return data[0].url;
+                } else {
+                    throw new Error('Nenhuma URL da Cloudflare encontrada.');
+                }
+            } catch (error) {
+                console.error('Erro ao buscar URL da Cloudflare:', error);
+                loadingMessage.textContent = 'Erro ao carregar a URL base.';
+                return null;
+            }
+        }
+
+        async function fetchVideosAndShuffle(autoplay = false) {
+            loadingMessage.classList.remove('hidden');
+            let selectColumns = "id,tag,filename,hide,reels,seconds";
+            let filters = "hide=eq.false&reels=eq.true&seconds=gt.30"; 
+
+            const fetchUrl = `${supabaseUrl}/rest/v1/files?select=${selectColumns}&${filters}`;
+
+            try {
+                const response = await fetch(fetchUrl, {
+                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+                });
+
+                if (!response.ok) {
+                    let errorMsg = `Erro HTTP! status: ${response.status}`;
+                    try {
+                        const errorBody = await response.json();
+                        errorMsg = `Erro do Supabase: ${errorBody.message}`; 
+                    } catch (e) { /* ignore */ }
+                    throw new Error(errorMsg);
+                }
+
+                videos = await response.json();
+
+                if (videos.length === 0) {
+                    loadingMessage.textContent = "Nenhum vídeo encontrado com os filtros selecionados.";
+                    nextVideoButton.disabled = true;
+                    previousVideoButton.disabled = true;
+                    return;
+                }
+
+                shuffleArray(videos);
+                currentVideoIndex = 0;
+                displayVideo(currentVideoIndex, autoplay);
+
+            } catch (error) {
+                console.error('Erro ao buscar vídeos:', error);
+                loadingMessage.textContent = 'Erro ao carregar vídeos.';
+            } finally {
+                loadingMessage.classList.add('hidden');
+            }
+        }
+        
+        // Adiciona a funcionalidade de pré-carregamento do próximo vídeo
+        function preloadNextVideo() {
+            if (videos.length < 2) return; // Não pré-carrega se houver apenas um ou nenhum vídeo
+            
+            const nextIndex = (currentVideoIndex + 1) % videos.length;
+            const nextVideoFile = videos[nextIndex];
+            const nextVideoUrl = `${cloudflareBaseUrl}/videos/no_tag/${nextVideoFile.filename}`;
+            
+            preloadVideoElement.src = nextVideoUrl;
+            preloadVideoElement.load();
+            console.log("Próximo vídeo pré-carregado: ", nextVideoFile.filename);
+        }
+
+        function displayVideo(index, shouldPlay = true) {
+            if (!cloudflareBaseUrl) {
+                loadingMessage.textContent = 'URL base de vídeos indisponível.';
+                return;
+            }
+            if (index >= 0 && index < videos.length) {
+                const file = videos[index];
+                const videoUrl = `${cloudflareBaseUrl}/videos/no_tag/${file.filename}`;
+                
+                videoElement.src = videoUrl;
+                videoElement.load(); 
+                
+                if (shouldPlay) {
+                    videoElement.play().catch(error => console.log('Autoplay bloqueado:', error.message));
+                    playPauseButton.textContent = 'Pause';
+                }
+                currentVideoIndex = index;
+
+                // Chama a função de pré-carregamento logo após a exibição do vídeo
+                preloadNextVideo();
+            } else if (videos.length === 0) {
+                loadingMessage.textContent = 'Nenhum vídeo na lista.';
+                videoElement.src = "";
+            }
+        }
+
+        // Função para formatar o tempo em MM:SS
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+        }
+
+        // Função para atualizar a barra de progresso e o tempo
+        function updateProgressBar() {
+            if (!isNaN(videoElement.duration)) {
+                progressBar.value = videoElement.currentTime;
+                currentTimeSpan.textContent = formatTime(videoElement.currentTime);
+            }
+        }
+
+        // Alterna entre play e pause
+        function togglePlayPause() {
+            if (videoElement.paused || videoElement.ended) {
+                videoElement.play();
+                playPauseButton.textContent = 'Pause';
+            } else {
+                videoElement.pause();
+                playPauseButton.textContent = 'Play';
+            }
+        }
+
+        function seekVideo(seconds) {
+            if (videoElement) videoElement.currentTime += seconds;
+        }
+
+        function playNextVideo() {
+            if (videos.length === 0) return;
+            currentVideoIndex++;
+            if (currentVideoIndex >= videos.length) {
+                currentVideoIndex = 0;
+            }
+            displayVideo(currentVideoIndex, true);
+        }
+
+        function playPreviousVideo() {
+            if (videos.length === 0) return;
+            currentVideoIndex--;
+            if (currentVideoIndex < 0) {
+                currentVideoIndex = videos.length - 1;
+            }
+            displayVideo(currentVideoIndex, true);
+        }
+
+        async function initializeApp() {
+            cloudflareBaseUrl = await getCloudflareUrl();
+            if (cloudflareBaseUrl) {
+                await fetchVideosAndShuffle(true);
+                nextVideoButton.focus();
+            } else {
+                nextVideoButton.disabled = true;
+                previousVideoButton.disabled = true;
+            }
+        }
+
+        window.onload = function() {
+            initializeApp();
+        };
+
+        // Event Listeners
+        nextVideoButton.addEventListener('click', playNextVideo);
+        previousVideoButton.addEventListener('click', playPreviousVideo);
+        videoElement.addEventListener('ended', playNextVideo);
+        forwardButton.addEventListener('click', () => seekVideo(5));
+        rewindButton.addEventListener('click', () => seekVideo(-5));
+        playPauseButton.addEventListener('click', togglePlayPause);
+        
+        // Event listeners da barra de progresso e tempo
+        videoElement.addEventListener('loadedmetadata', () => {
+            progressBar.max = videoElement.duration;
+            durationSpan.textContent = formatTime(videoElement.duration);
+        });
+        videoElement.addEventListener('timeupdate', updateProgressBar);
+        
+        progressBar.addEventListener('input', () => {
+            videoElement.currentTime = progressBar.value;
+        });
+
+    </script>
+</body>
+</html>
